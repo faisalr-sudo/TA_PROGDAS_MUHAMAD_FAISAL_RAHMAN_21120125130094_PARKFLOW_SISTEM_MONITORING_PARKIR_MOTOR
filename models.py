@@ -1,6 +1,7 @@
+# Import modul datetime untuk menangani waktu
 from datetime import datetime
 
-
+# Kelas Kendaraan merepresentasikan kendaraan yang diparkir di sistem
 class Kendaraan:
     """Represents a vehicle parked in the system.
 
@@ -10,9 +11,10 @@ class Kendaraan:
         waktu_masuk (datetime): timestamp when vehicle was parked
     """
     def __init__(self, plat, jenis):
+        # Inisialisasi atribut plat dan jenis kendaraan
         self.plat = plat
         self.jenis = jenis
-        # record waktu masuk saat objek dibuat
+        # Catat waktu masuk saat objek kendaraan dibuat
         self.waktu_masuk = datetime.now()
 
 
@@ -26,14 +28,15 @@ class ParkFlowSystem:
     - undo stack untuk membatalkan aksi terakhir.
     """
     def __init__(self, kapasitas):
+        # Simpan kapasitas parkir (jumlah slot maksimal)
         self.kapasitas = kapasitas
-        # daftar slot, setiap elemen None atau objek `Kendaraan`
+        # Buat list slots dengan panjang kapasitas, diisi None (kosong)
         self.slots = [None] * kapasitas  # MODUL 3: List
-        # simpan riwayat keluar (untuk tampilan dan bukti)
+        # List untuk menyimpan riwayat kendaraan yang keluar (untuk tampilan dan bukti)
         self.riwayat = []                # List of dict
-        # antrian ketika parkir penuh; item = (plat, jenis)
+        # Antrian ketika parkir penuh; setiap item adalah tuple (plat, jenis)
         self.antrian = []                # Queue
-        # stack untuk undo; menyimpan tuple aksi untuk rollback
+        # Stack untuk undo; menyimpan tuple aksi untuk rollback
         self.undo_stack = []             # Stack untuk UNDO
 
     def validasi_plat(self, plat):
@@ -63,12 +66,15 @@ class ParkFlowSystem:
 
         Digunakan untuk mencegah duplikasi pendaftaran kendaraan.
         """
+        # Cek di slots: jika ada kendaraan dan plat sama, return True
         for s in self.slots:
             if s and s.plat == plat:
                 return True
+        # Cek di antrian: jika plat sama, return True
         for p, _ in self.antrian:
             if p == plat:
                 return True
+        # Jika tidak ditemukan, return False
         return False
 
     def masuk(self, plat, jenis):
@@ -80,31 +86,39 @@ class ParkFlowSystem:
         - Jika penuh: tambahkan ke antrian dan catat pada undo
         - Mengembalikan True saat berhasil parkir, atau pesan string jika ada masalah.
         """
+        # Validasi plat nomor kendaraan
         plat = self.validasi_plat(plat)
         if not plat:
             return "Format plat salah. Contoh benar: B12A"
 
+        # Cek apakah plat sudah ada di sistem
         if self.plat_sudah_ada(plat):
             return "Plat sudah terdaftar"
 
-        # cari slot kosong
+        # Cari slot kosong pertama
         for i in range(self.kapasitas):
             if self.slots[i] is None:
+                # Buat objek kendaraan baru
                 kendaraan = Kendaraan(plat, jenis)
                 self.slots[i] = kendaraan
-                # simpan aksi untuk memungkinkan undo (hapus dari slot)
+                # Simpan aksi ke undo stack untuk rollback
                 self.undo_stack.append(("masuk", i))
                 return True
 
-        # jika tidak ada slot kosong, masukkan ke antrian
+        # Jika tidak ada slot kosong, masukkan ke antrian
         self.antrian.append((plat, jenis))
         self.undo_stack.append(("antrian", plat, jenis))
         return "Slot penuh. Plat masuk antrian"
 
     def hitung_biaya(self, menit):
-        if menit <= 1:
+        """Hitung biaya parkir berdasarkan jam.
+
+        Biaya 2000 untuk jam pertama, kemudian 1000 per jam tambahan, dibulatkan ke atas.
+        """
+        jam = (menit + 59) // 60  # ceil(menit / 60)
+        if jam <= 1:
             return 2000
-        return 2000 + (menit - 1) * 1000
+        return 2000 + (jam - 1) * 1000
 
     def keluar(self, index):
         """Proses kendaraan keluar dari slot `index`.
@@ -119,16 +133,17 @@ class ParkFlowSystem:
             return False
 
         keluar = datetime.now()
-        # durasi dalam menit, minimal 1
-        durasi = max(1, int((keluar - kendaraan.waktu_masuk).total_seconds() // 60))
-        biaya = self.hitung_biaya(durasi)
+        # durasi dalam detik sesuai dengan durasi slot saat keluar
+        durasi_detik = (keluar - kendaraan.waktu_masuk).total_seconds()
+        menit = durasi_detik // 60
+        biaya = self.hitung_biaya(menit)
 
         data = {
             "plat": kendaraan.plat,
             "jenis": kendaraan.jenis,
             "masuk": kendaraan.waktu_masuk,
             "keluar": keluar,
-            "durasi": durasi,
+            "durasi": durasi_detik,
             "biaya": biaya
         }
         self.riwayat.append(data)
@@ -144,19 +159,23 @@ class ParkFlowSystem:
         return biaya
 
     def undo(self):
+        """Undo aksi terakhir yang dilakukan.
+
+        Menggunakan stack undo untuk rollback aksi masuk, antrian, atau keluar.
+        """
         if not self.undo_stack:
             return False
-        # ambil aksi terakhir
+        # Ambil aksi terakhir dari stack
         aksi = self.undo_stack.pop()
         tipe = aksi[0]
 
         if tipe == "masuk":
-            # undo dari sebuah parkir: kosongkan kembali slot
+            # Undo parkir: kosongkan kembali slot
             index = aksi[1]
             self.slots[index] = None
 
         elif tipe == "antrian":
-            # undo menambahkan ke antrian: hapus entri antrian yang sesuai
+            # Undo menambahkan ke antrian: hapus entri antrian yang sesuai
             plat, jenis = aksi[1], aksi[2]
             for i, (p, _) in enumerate(self.antrian):
                 if p == plat:
@@ -164,11 +183,11 @@ class ParkFlowSystem:
                     break
 
         elif tipe == "keluar":
-            # undo keluar: kembalikan kendaraan ke slot dan hapus riwayat terakhir
+            # Undo keluar: kembalikan kendaraan ke slot dan hapus riwayat terakhir
             index, kendaraan = aksi[1], aksi[2]
             self.slots[index] = kendaraan
 
-            # Hapus 1 data riwayat terakhir dari kendaraan itu
+            # Hapus data riwayat terakhir dari kendaraan itu
             for r in reversed(self.riwayat):
                 if r["plat"] == kendaraan.plat:
                     self.riwayat.remove(r)
